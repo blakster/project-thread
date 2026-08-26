@@ -344,3 +344,68 @@ test("agentFilesAndMemorySurviveRelaunch", async (t) => {
   assert.equal(fs.readFileSync(adaAbs, "utf8"), "ada-file-survives");
   assert.equal(fs.readFileSync(beauAbs, "utf8"), "beau-file-survives");
 });
+
+function agentSection(html, name) {
+  const m = html.match(new RegExp(`<section class="agent" data-agent="${name}"[\\s\\S]*?</section>`));
+  return m ? m[0] : "";
+}
+
+test("threadShowsEachAgentsFilesOnConnectedComputer", async (t) => {
+  const home = tmp("hearth-thread-files-");
+  const computerRoot = tmp("hearth-thread-comp-");
+
+  const noCompHome = tmp("hearth-thread-noconnect-");
+  const noCompApp = spawnProc(["start", "--port", "0", "--home", noCompHome]);
+  t.after(() => stop(noCompApp));
+  const noCompUrl = await waitReady(noCompApp, "app");
+  await jsonReq(noCompUrl, "/create", { method: "POST", body: { name: "No Files Yet" } });
+  await jsonReq(noCompUrl, "/agents", { method: "POST", body: { name: "Ada" } });
+  const noHtml = await (await fetch(noCompUrl + "/")).text();
+  const adaNo = agentSection(noHtml, "Ada");
+  assert.match(adaNo, /Connect a computer to write files/);
+  assert.doesNotMatch(adaNo, /<ul class="files">/);
+  assert.doesNotMatch(adaNo, /ada-only\.txt/);
+
+  const computer = spawnProc(["computer", "--port", "0", "--root", computerRoot]);
+  t.after(() => stop(computer));
+  const computerUrl = await waitReady(computer, "computer");
+
+  const app = spawnProc(["start", "--port", "0", "--home", home]);
+  t.after(() => stop(app));
+  const url = await waitReady(app, "app");
+
+  await jsonReq(url, "/create", { method: "POST", body: { name: "Atlas Lab" } });
+  const a = await jsonReq(url, "/agents", { method: "POST", body: { name: "Ada" } });
+  const b = await jsonReq(url, "/agents", { method: "POST", body: { name: "Beau" } });
+  const ada = a.data.agent;
+  const beau = b.data.agent;
+  await jsonReq(url, "/computer/connect", { method: "POST", body: { url: computerUrl } });
+
+  const adaWrite = await jsonReq(url, `/agents/${ada.id}/files`, {
+    method: "POST",
+    body: { path: "notes/ada-only.txt", content: "ada-secret" },
+  });
+  const beauWrite = await jsonReq(url, `/agents/${beau.id}/files`, {
+    method: "POST",
+    body: { path: "notes/beau-only.txt", content: "beau-secret" },
+  });
+  assert.equal(adaWrite.status, 200);
+  assert.equal(beauWrite.status, 200);
+  assert.ok(adaWrite.data.abs.startsWith(path.resolve(computerRoot)));
+  assert.ok(beauWrite.data.abs.startsWith(path.resolve(computerRoot)));
+  assert.equal(adaWrite.data.abs.startsWith(path.resolve(APP_ROOT)), false);
+
+  const html = await (await fetch(url + "/")).text();
+  assert.match(html, /data-screen="project-thread"/);
+  const adaSec = agentSection(html, "Ada");
+  const beauSec = agentSection(html, "Beau");
+  assert.ok(adaSec.length > 0, "Ada section missing");
+  assert.ok(beauSec.length > 0, "Beau section missing");
+  assert.match(adaSec, /<ul class="files">/);
+  assert.match(adaSec, />notes\\/ada-only\\.txt</);
+  assert.doesNotMatch(adaSec, /beau-only/);
+  assert.match(beauSec, />notes\\/beau-only\\.txt</);
+  assert.doesNotMatch(beauSec, /ada-only/);
+  assert.match(adaSec, new RegExp(`title="${adaWrite.data.abs.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}"`));
+  assert.match(beauSec, new RegExp(`title="${beauWrite.data.abs.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}"`));
+});
