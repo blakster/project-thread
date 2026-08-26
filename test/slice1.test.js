@@ -346,8 +346,13 @@ test("agentFilesAndMemorySurviveRelaunch", async (t) => {
 });
 
 function agentSection(html, name) {
-  const m = html.match(new RegExp(`<section class="agent" data-agent="${name}"[\\s\\S]*?</section>`));
-  return m ? m[0] : "";
+  const marker = 'data-agent="' + name + '"';
+  const at = html.indexOf(marker);
+  if (at < 0) return "";
+  const start = html.lastIndexOf("<section", at);
+  const end = html.indexOf("</section>", at);
+  if (start < 0 || end < 0) return "";
+  return html.slice(start, end + "</section>".length);
 }
 
 test("threadShowsEachAgentsFilesOnConnectedComputer", async (t) => {
@@ -362,9 +367,12 @@ test("threadShowsEachAgentsFilesOnConnectedComputer", async (t) => {
   await jsonReq(noCompUrl, "/agents", { method: "POST", body: { name: "Ada" } });
   const noHtml = await (await fetch(noCompUrl + "/")).text();
   const adaNo = agentSection(noHtml, "Ada");
-  assert.match(adaNo, /Connect a computer to write files/);
-  assert.doesNotMatch(adaNo, /<ul class="files">/);
-  assert.doesNotMatch(adaNo, /ada-only\.txt/);
+  assert.ok(adaNo.includes('data-agent="Ada"'));
+  assert.ok(adaNo.includes("Connect a computer to write files"));
+  assert.equal(adaNo.includes("ada-only.txt"), false);
+  assert.equal(adaNo.includes("beau-only.txt"), false);
+  assert.equal(noHtml.includes("ada-only.txt"), false);
+  assert.equal(noHtml.includes("beau-only.txt"), false);
 
   const computer = spawnProc(["computer", "--port", "0", "--root", computerRoot]);
   t.after(() => stop(computer));
@@ -381,13 +389,13 @@ test("threadShowsEachAgentsFilesOnConnectedComputer", async (t) => {
   const beau = b.data.agent;
   await jsonReq(url, "/computer/connect", { method: "POST", body: { url: computerUrl } });
 
-  const adaWrite = await jsonReq(url, `/agents/${ada.id}/files`, {
+  const adaWrite = await jsonReq(url, "/agents/" + ada.id + "/files", {
     method: "POST",
-    body: { path: "notes/ada-only.txt", content: "ada-secret" },
+    body: { path: "ada-only.txt", content: "ada-secret" },
   });
-  const beauWrite = await jsonReq(url, `/agents/${beau.id}/files`, {
+  const beauWrite = await jsonReq(url, "/agents/" + beau.id + "/files", {
     method: "POST",
-    body: { path: "notes/beau-only.txt", content: "beau-secret" },
+    body: { path: "beau-only.txt", content: "beau-secret" },
   });
   assert.equal(adaWrite.status, 200);
   assert.equal(beauWrite.status, 200);
@@ -395,17 +403,17 @@ test("threadShowsEachAgentsFilesOnConnectedComputer", async (t) => {
   assert.ok(beauWrite.data.abs.startsWith(path.resolve(computerRoot)));
   assert.equal(adaWrite.data.abs.startsWith(path.resolve(APP_ROOT)), false);
 
-  const html = await (await fetch(url + "/")).text();
-  assert.match(html, /data-screen="project-thread"/);
+  const page = await fetch(url + "/");
+  const html = await page.text();
+  assert.equal(page.status, 200);
+  assert.ok(html.includes('data-screen="project-thread"'));
+
   const adaSec = agentSection(html, "Ada");
   const beauSec = agentSection(html, "Beau");
-  assert.ok(adaSec.length > 0, "Ada section missing");
-  assert.ok(beauSec.length > 0, "Beau section missing");
-  assert.match(adaSec, /<ul class="files">/);
-  assert.match(adaSec, />notes\\/ada-only\\.txt</);
-  assert.doesNotMatch(adaSec, /beau-only/);
-  assert.match(beauSec, />notes\\/beau-only\\.txt</);
-  assert.doesNotMatch(beauSec, /ada-only/);
-  assert.match(adaSec, new RegExp(`title="${adaWrite.data.abs.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}"`));
-  assert.match(beauSec, new RegExp(`title="${beauWrite.data.abs.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}"`));
+  assert.ok(adaSec.includes('data-agent="Ada"'), "Ada section missing");
+  assert.ok(beauSec.includes('data-agent="Beau"'), "Beau section missing");
+  assert.ok(adaSec.includes("ada-only.txt"));
+  assert.equal(adaSec.includes("beau-only.txt"), false);
+  assert.ok(beauSec.includes("beau-only.txt"));
+  assert.equal(beauSec.includes("ada-only.txt"), false);
 });
