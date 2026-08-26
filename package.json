@@ -1,0 +1,16 @@
+{
+  "name": "hearth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Named teammates in a project thread, with a local connected computer and isolated per-agent files.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js start",
+    "computer": "node src/index.js computer",
+    "test": "node --test test/slice1.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
