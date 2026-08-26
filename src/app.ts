@@ -73,6 +73,35 @@ async function computerFetch(
   return body;
 }
 
+function parseListedFiles(raw: unknown): { path: string; abs: string }[] {
+  if (typeof raw !== "object" || raw === null || !("files" in raw)) return [];
+  const files = raw.files;
+  if (!Array.isArray(files)) return [];
+  return files.flatMap((f) => {
+    if (typeof f !== "object" || f === null) return [];
+    if (!("path" in f) || !("abs" in f)) return [];
+    if (typeof f.path !== "string" || typeof f.abs !== "string") return [];
+    return [{ path: f.path, abs: f.abs }];
+  });
+}
+
+async function agentFiles(state: State): Promise<Partial<Record<AgentId, { path: string; abs: string }[]>>> {
+  const out: Partial<Record<AgentId, { path: string; abs: string }[]>> = {};
+  if (!state.computerUrl) return out;
+  for (const agent of state.agents) {
+    try {
+      const listed = await computerFetch(
+        state.computerUrl,
+        `/files?agentId=${encodeURIComponent(agent.id)}`
+      );
+      out[agent.id] = parseListedFiles(listed);
+    } catch {
+      out[agent.id] = [];
+    }
+  }
+  return out;
+}
+
 export function startApp(args: {
   port?: number;
   home: string;
@@ -101,7 +130,7 @@ export function startApp(args: {
       if (method === "GET" && (url.pathname === "/" || url.pathname === "/thread")) {
         const screen = screenOf(state);
         if (screen.kind === "create") return html(res, 200, createScreen());
-        return html(res, 200, threadScreen(state));
+        return html(res, 200, threadScreen(state, await agentFiles(state)));
       }
 
       if (method === "POST" && (url.pathname === "/create" || url.pathname === "/api/threads")) {
@@ -117,7 +146,7 @@ export function startApp(args: {
         if (wantsJson(req)) {
           return json(res, 201, { thread, screen: "project-thread" });
         }
-        return html(res, 200, threadScreen(state));
+        return html(res, 200, threadScreen(state, await agentFiles(state)));
       }
 
       if (method === "GET" && url.pathname === "/api/state") {
@@ -142,7 +171,7 @@ export function startApp(args: {
         if (!state.memory[agent.id]) state.memory[agent.id] = [];
         persist();
         if (wantsJson(req)) return json(res, 201, { agent });
-        return html(res, 200, threadScreen(state));
+        return html(res, 200, threadScreen(state, await agentFiles(state)));
       }
 
       if (method === "POST" && url.pathname === "/computer/connect") {
@@ -152,7 +181,7 @@ export function startApp(args: {
         state.computerUrl = next;
         persist();
         if (wantsJson(req)) return json(res, 200, { computerUrl: state.computerUrl });
-        return html(res, 200, threadScreen(state));
+        return html(res, 200, threadScreen(state, await agentFiles(state)));
       }
 
       const fileMatch = url.pathname.match(/^\/agents\/([^/]+)\/files$/);
@@ -180,7 +209,7 @@ export function startApp(args: {
           }),
         });
         if (wantsJson(req)) return json(res, 200, written);
-        return html(res, 200, threadScreen(state));
+        return html(res, 200, threadScreen(state, await agentFiles(state)));
       }
       if (fileMatch && method === "GET") {
         let agentId: AgentId;
@@ -216,7 +245,7 @@ export function startApp(args: {
         state.memory[agent.id] = existing;
         persist();
         if (wantsJson(req)) return json(res, 201, { memory: state.memory[agent.id] });
-        return html(res, 200, threadScreen(state));
+        return html(res, 200, threadScreen(state, await agentFiles(state)));
       }
       if (memMatch && method === "GET") {
         let agentId: AgentId;
