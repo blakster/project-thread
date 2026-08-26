@@ -6,11 +6,16 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js start",
-    "computer": "node src/index.js computer",
-    "test": "node --test test/slice1.test.js"
+    "build": "tsc",
+    "start": "node dist/index.js start",
+    "computer": "node dist/index.js computer",
+    "test": "tsc && node --test test/slice1.test.js"
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^26.3.0",
+    "typescript": "^7.0.2"
   }
 }
